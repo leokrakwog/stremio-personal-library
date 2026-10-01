@@ -1,6 +1,64 @@
 const express = require("express");
 const crypto = require("crypto");
 
+const SESSION_ENCRYPTION_KEY = Buffer.from(
+  process.env.SESSION_ENCRYPTION_KEY,
+  "hex"
+);
+
+if (SESSION_ENCRYPTION_KEY.length !== 32) {
+  throw new Error(
+    "SESSION_ENCRYPTION_KEY must be exactly 32 bytes (64 hex characters)"
+  );
+}
+
+function encryptAuthKey(authKey) {
+  const iv = crypto.randomBytes(12);
+
+  const cipher = crypto.createCipheriv(
+    "aes-256-gcm",
+    SESSION_ENCRYPTION_KEY,
+    iv
+  );
+
+  const encrypted = Buffer.concat([
+    cipher.update(authKey, "utf8"),
+    cipher.final()
+  ]);
+
+  const tag = cipher.getAuthTag();
+
+  return [
+    iv.toString("hex"),
+    tag.toString("hex"),
+    encrypted.toString("hex")
+  ].join(":");
+}
+
+function decryptAuthKey(encryptedValue) {
+  const [ivHex, tagHex, encryptedHex] =
+    encryptedValue.split(":");
+
+  const decipher = crypto.createDecipheriv(
+    "aes-256-gcm",
+    SESSION_ENCRYPTION_KEY,
+    Buffer.from(ivHex, "hex")
+  );
+
+  decipher.setAuthTag(
+    Buffer.from(tagHex, "hex")
+  );
+
+  const decrypted = Buffer.concat([
+    decipher.update(
+      Buffer.from(encryptedHex, "hex")
+    ),
+    decipher.final()
+  ]);
+
+  return decrypted.toString("utf8");
+}
+
 const app = express();
 const PORT = process.env.PORT || 7700;
 
@@ -59,7 +117,7 @@ async function saveSession(sessionId, authKey) {
     },
     body: JSON.stringify({
       session_id: sessionId,
-      auth_key: authKey,
+      auth_key_encrypted: encryptAuthKey(authKey),
       created_at: new Date().toISOString(),
       last_used_at: new Date().toISOString()
     })
@@ -68,7 +126,7 @@ async function saveSession(sessionId, authKey) {
 
 async function getSession(sessionId) {
   const rows = await supabaseRequest(
-    `sessions?session_id=eq.${encodeURIComponent(sessionId)}&select=session_id,auth_key,created_at,last_used_at`
+    `sessions?session_id=eq.${encodeURIComponent(sessionId)}&select=session_id,auth_key_encrypted,created_at,last_used_at`
   );
 
   if (!Array.isArray(rows) || rows.length === 0) {
@@ -76,7 +134,7 @@ async function getSession(sessionId) {
   }
 
   return {
-    authKey: rows[0].auth_key,
+    authKey: decryptAuthKey(rows[0].auth_key_encrypted),
     createdAt: rows[0].created_at,
     lastUsedAt: rows[0].last_used_at
   };
