@@ -1,5 +1,6 @@
 const express = require("express");
 const crypto = require("crypto");
+const rateLimit = require("express-rate-limit");
 
 const SESSION_ENCRYPTION_KEY = Buffer.from(
   process.env.SESSION_ENCRYPTION_KEY,
@@ -61,6 +62,36 @@ function decryptAuthKey(encryptedValue) {
 
 const app = express();
 const PORT = process.env.PORT || 7700;
+
+const linkCreateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: {
+    error: "Too many link requests. Try again later."
+  }
+});
+
+const linkReadLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: {
+    error: "Too many requests. Try again later."
+  }
+});
+
+const connectLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: {
+    error: "Too many connection attempts. Try again later."
+  }
+});
 
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -354,106 +385,117 @@ function manifestForSession(req, sessionId) {
 // STREMIO ACCOUNT LINK
 // ============================================================
 
-app.get("/api/link/create", async (_req, res) => {
-  try {
-    const body = await fetchJson(`${LINK_API}/create`);
+app.get(
+  "/api/link/create",
+  linkCreateLimiter,
+  async (_req, res) => {
+    try {
+      const body = await fetchJson(`${LINK_API}/create`);
 
-    if (!body?.link || !body?.code) {
-      throw new Error(
-        "Stremio link service returned an invalid response"
+      if (!body?.link || !body?.code) {
+        throw new Error(
+          "Stremio link service returned an invalid response"
+        );
+      }
+
+      res.json({
+        link: body.link,
+        code: body.code
+      });
+    } catch (error) {
+      console.error(
+        "Link create failed:",
+        error.message
       );
+
+      res.status(502).json({
+        error: "Unable to create Stremio link"
+      });
+    }
+  }
+);
+
+
+app.get(
+  "/api/link/read",
+  linkReadLimiter,
+  async (req, res) => {
+    const code = String(
+      req.query.code || ""
+    ).trim();
+
+    if (!code) {
+      return res.status(400).json({
+        error: "Missing code"
+      });
     }
 
-    res.json({
-      link: body.link,
-      code: body.code
-    });
-  } catch (error) {
-    console.error(
-      "Link create failed:",
-      error.message
-    );
+    try {
+      const body = await fetchJson(
+        `${LINK_API}/read?code=${encodeURIComponent(code)}`
+      );
 
-    res.status(502).json({
-      error: "Unable to create Stremio link"
-    });
+      res.json(body);
+    } catch (error) {
+      console.error(
+        "Link read failed:",
+        error.message
+      );
+
+      res.status(502).json({
+        error: "Unable to read Stremio link"
+      });
+    }
   }
-});
+);
 
 
-app.get("/api/link/read", async (req, res) => {
-  const code = String(
-    req.query.code || ""
-  ).trim();
+app.post(
+  "/api/connect",
+  connectLimiter,
+  async (req, res) => {
+    const linkAuthKey = String(
+      req.body?.authKey || ""
+    ).trim();
 
-  if (!code) {
-    return res.status(400).json({
-      error: "Missing code"
-    });
+    if (!linkAuthKey) {
+      return res.status(400).json({
+        error: "Missing authKey"
+      });
+    }
+
+    try {
+      const sessionAuthKey =
+        await loginWithToken(linkAuthKey);
+
+      const sessionId =
+        crypto.randomBytes(32).toString("base64url");
+
+      await saveSession(sessionId, sessionAuthKey);
+
+      const addonUrl =
+        `${publicBase(req)}/u/` +
+        `${encodeURIComponent(sessionId)}` +
+        `/manifest.json`;
+
+      res.json({
+        addonUrl,
+        sessionId
+      });
+
+    } catch (error) {
+      console.error(
+        "Stremio connect failed:",
+        error.message
+      );
+
+      res.status(502).json({
+        error:
+          `Stremio login failed: ${error.message}`
+      });
+    }
   }
-
-  try {
-    const body = await fetchJson(
-      `${LINK_API}/read?code=${encodeURIComponent(code)}`
-    );
-
-    res.json(body);
-  } catch (error) {
-    console.error(
-      "Link read failed:",
-      error.message
-    );
-
-    res.status(502).json({
-      error: "Unable to read Stremio link"
-    });
-  }
-});
-
-
-app.post("/api/connect", async (req, res) => {
-  const linkAuthKey = String(
-    req.body?.authKey || ""
-  ).trim();
-
-  if (!linkAuthKey) {
-    return res.status(400).json({
-      error: "Missing authKey"
-    });
-  }
-
-  try {
-    const sessionAuthKey =
-      await loginWithToken(linkAuthKey);
-
-    const sessionId =
-      crypto.randomBytes(32).toString("base64url");
-
-    await saveSession(sessionId, sessionAuthKey);
-
-    const addonUrl =
-      `${publicBase(req)}/u/` +
-      `${encodeURIComponent(sessionId)}` +
-      `/manifest.json`;
-
-    res.json({
-      addonUrl,
-      sessionId
-    });
-
-  } catch (error) {
-    console.error(
-      "Stremio connect failed:",
-      error.message
-    );
-
-    res.status(502).json({
-      error:
-        `Stremio login failed: ${error.message}`
-    });
-  }
-});
-
+);
 
 // ============================================================
 // MANIFEST
