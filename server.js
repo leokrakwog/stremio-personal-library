@@ -76,7 +76,7 @@ const linkCreateLimiter = rateLimit({
 
 const linkReadLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
-  limit: 30,
+  limit: 180,
   standardHeaders: "draft-8",
   legacyHeaders: false,
   message: {

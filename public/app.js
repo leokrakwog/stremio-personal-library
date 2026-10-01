@@ -70,7 +70,7 @@ connect.addEventListener("click", async () => {
         break;
       }
 
-      await sleep(700);
+      await sleep(2000);
     }
 
     if (!addonUrl) throw new Error("Collegamento non completato entro 5 minuti.");
