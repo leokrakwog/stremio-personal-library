@@ -95,13 +95,38 @@ const connectLimiter = rateLimit({
 });
 
 app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  const origin = req.get("Origin");
 
-  if (req.method === "OPTIONS") return res.sendStatus(204);
+  const allowedOrigins = [
+    "https://stremio-personal-library.onrender.com"
+  ];
 
-  next();
+  if (!origin || allowedOrigins.includes(origin)) {
+    if (origin) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+    }
+
+    res.setHeader(
+      "Access-Control-Allow-Methods",
+      "GET, POST, OPTIONS"
+    );
+
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type"
+    );
+
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(204);
+    }
+
+    return next();
+  }
+
+  return res.status(403).json({
+    error: "Origin not allowed"
+  });
 });
 
 app.use(express.json());
