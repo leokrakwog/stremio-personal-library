@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Salvati per dopo</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="card hero">
+      <div class="eyebrow">STREMIO SETUP</div>
+      <h1>La tua libreria,<br><span>nel tuo Stremio.</span></h1>
+      <p class="lead">Collega il tuo account Stremio e crea automaticamente il tuo catalogo personale.</p>
+
+      <div class="steps">
+        <div><b>01</b><span>Collega il tuo account Stremio</span></div>
+        <div><b>02</b><span>Autorizza il collegamento</span></div>
+        <div><b>03</b><span>Installa il tuo addon personale</span></div>
+      </div>
+
+      <button id="connect" class="primary">Collega Stremio</button>
+      <div id="status" class="status"></div>
+
+      <div id="result" class="result hidden">
+        <div class="success">✓ Account collegato</div>
+        <p>Il catalogo usa la tua Library Stremio.</p>
+        <div class="urlbox" id="addonUrl"></div>
+        <div class="actions">
+          <button id="install" class="primary">Installa in Stremio</button>
+          <button id="copy" class="secondary">Copia URL</button>
+        </div>
+      </div>
+
+      <div id="error" class="error hidden"></div>
+    </section>
+
+    <section class="card info">
+      <h2>Privacy</h2>
+      <p>Il server conserva temporaneamente solo una sessione tecnica necessaria per rispondere alle richieste del tuo addon. Non salviamo una copia della tua Library.</p>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
