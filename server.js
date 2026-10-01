@@ -500,8 +500,7 @@ app.post(
       );
 
       res.status(502).json({
-        error:
-          `Stremio login failed: ${error.message}`
+        error: "Unable to connect Stremio account"
       });
     }
   }
