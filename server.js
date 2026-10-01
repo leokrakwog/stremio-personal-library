@@ -1,6 +1,7 @@
 const express = require("express");
 const crypto = require("crypto");
 const rateLimit = require("express-rate-limit");
+const helmet = require("helmet");
 
 const SESSION_ENCRYPTION_KEY = Buffer.from(
   process.env.SESSION_ENCRYPTION_KEY,
@@ -104,6 +105,13 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
+
+app.use(
+  helmet({
+    contentSecurityPolicy: false
+  })
+);
+
 app.use(express.static("public"));
 
 // Temporary in-memory sessions for this development build.
@@ -469,7 +477,7 @@ app.post(
         await loginWithToken(linkAuthKey);
 
       const sessionId =
-        crypto.randomBytes(32).toString("base64url");
+        crypto.randomBytes(32).toString("base64url"); 
 
       await saveSession(sessionId, sessionAuthKey);
 
