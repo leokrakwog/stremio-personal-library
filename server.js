@@ -174,11 +174,26 @@ async function getSession(sessionId) {
     return null;
   }
 
-  return {
-    authKey: decryptAuthKey(rows[0].auth_key_encrypted),
-    createdAt: rows[0].created_at,
-    lastUsedAt: rows[0].last_used_at
-  };
+  const row = rows[0];
+
+  if (!row.auth_key_encrypted) {
+    return null;
+  }
+
+  try {
+    return {
+      authKey: decryptAuthKey(row.auth_key_encrypted),
+      createdAt: row.created_at,
+      lastUsedAt: row.last_used_at
+    };
+  } catch (error) {
+    console.error(
+      `Session decryption failed for ${sessionId.slice(0, 8)}...:`,
+      error.message
+    );
+
+    return null;
+  }
 }
 
 async function touchSession(sessionId) {
