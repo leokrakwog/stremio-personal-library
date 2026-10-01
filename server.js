@@ -62,6 +62,10 @@ function decryptAuthKey(encryptedValue) {
 }
 
 const app = express();
+
+// Render termina HTTPS davanti all'app e inoltra le richieste tramite proxy.
+app.set("trust proxy", 1);
+
 const PORT = process.env.PORT || 7700;
 
 const linkCreateLimiter = rateLimit({
