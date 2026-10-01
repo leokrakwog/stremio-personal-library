@@ -19,7 +19,99 @@ app.use(express.static("public"));
 
 // Temporary in-memory sessions for this development build.
 // The Stremio authKey is never put in the addon URL.
-const sessions = new Map();
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  console.error("Missing SUPABASE_URL or SUPABASE_KEY");
+}
+
+async function supabaseRequest(path, options = {}) {
+  const response = await fetch(
+    `${SUPABASE_URL}/rest/v1/${path}`,
+    {
+      ...options,
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+        ...(options.headers || {})
+      }
+    }
+  );
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error(
+      `Supabase HTTP ${response.status}: ${text}`
+    );
+  }
+
+  return text ? JSON.parse(text) : null;
+}
+
+async function saveSession(sessionId, authKey) {
+  await supabaseRequest("sessions?on_conflict=session_id", {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates,return=minimal"
+    },
+    body: JSON.stringify({
+      session_id: sessionId,
+      auth_key: authKey,
+      created_at: new Date().toISOString(),
+      last_used_at: new Date().toISOString()
+    })
+  });
+}
+
+async function getSession(sessionId) {
+  const rows = await supabaseRequest(
+    `sessions?session_id=eq.${encodeURIComponent(sessionId)}&select=session_id,auth_key,created_at,last_used_at`
+  );
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return null;
+  }
+
+  return {
+    authKey: rows[0].auth_key,
+    createdAt: rows[0].created_at,
+    lastUsedAt: rows[0].last_used_at
+  };
+}
+
+async function touchSession(sessionId) {
+  await supabaseRequest(
+    `sessions?session_id=eq.${encodeURIComponent(sessionId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        Prefer: "return=minimal"
+      },
+      body: JSON.stringify({
+        last_used_at: new Date().toISOString()
+      })
+    }
+  );
+}
+
+async function deleteExpiredSessions() {
+  const cutoff = new Date(
+    Date.now() - 30 * 24 * 60 * 60 * 1000
+  ).toISOString();
+
+  await supabaseRequest(
+    `sessions?last_used_at=lt.${encodeURIComponent(cutoff)}`,
+    {
+      method: "DELETE",
+      headers: {
+        Prefer: "return=minimal"
+      }
+    }
+  );
+}
 
 const LINK_API = "https://link.stremio.com/api";
 const STREMIO_API = "https://api.strem.io/api";
@@ -279,11 +371,7 @@ app.post("/api/connect", async (req, res) => {
     const sessionId =
       crypto.randomBytes(32).toString("base64url");
 
-    sessions.set(sessionId, {
-      authKey: sessionAuthKey,
-      createdAt: Date.now(),
-      lastUsedAt: Date.now()
-    });
+    await saveSession(sessionId, sessionAuthKey);
 
     const addonUrl =
       `${publicBase(req)}/u/` +
@@ -315,13 +403,10 @@ app.post("/api/connect", async (req, res) => {
 
 app.get(
   "/u/:sessionId/manifest.json",
-  (req, res) => {
+  async (req, res) => {
+    const sessionId = req.params.sessionId;
 
-    const sessionId =
-      req.params.sessionId;
-
-    const session =
-      sessions.get(sessionId);
+    const session = await getSession(sessionId);
 
     if (!session) {
       return res.status(404).json({
@@ -329,10 +414,11 @@ app.get(
       });
     }
 
-    session.lastUsedAt = Date.now();
+    await touchSession(sessionId);
 
-    res.json(manifestForSession(req, sessionId));
-    
+    res.json(
+      manifestForSession(req, sessionId)
+    );
   }
 );
 
@@ -342,12 +428,16 @@ app.get(
 // ============================================================
 
 async function servePersonalLibrary(req, res, sessionId) {
-  const session = sessions.get(sessionId);
+  const session = await getSession(sessionId);
+
   if (!session) {
-    return res.status(404).json({ metas: [], error: "Session not found" });
+    return res.status(404).json({
+      metas: [],
+      error: "Session not found"
+    });
   }
 
-  session.lastUsedAt = Date.now();
+  await touchSession(sessionId);
 
   const skip = Math.max(
     0,
@@ -504,11 +594,10 @@ app.get(
 app.get(
   "/api/health",
   (_req, res) => {
-
     res.json({
       ok: true,
       service: "stremio-personal-setup",
-      sessions: sessions.size
+      sessions: "persistent"
     });
   }
 );
@@ -519,24 +608,13 @@ app.get(
 // ============================================================
 
 setInterval(() => {
-
-  const now = Date.now();
-
-  for (
-    const [id, session]
-    of sessions
-  ) {
-
-    if (
-      now - session.lastUsedAt >
-      30 * 24 * 60 * 60 * 1000
-    ) {
-      sessions.delete(id);
-    }
-  }
-
+  deleteExpiredSessions().catch(error => {
+    console.error(
+      "Session cleanup failed:",
+      error.message
+    );
+  });
 }, 60 * 60 * 1000).unref();
-
 
 // ============================================================
 // START
